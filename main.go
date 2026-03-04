@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-var version = "dev"
+var Version = "dev"
 
 func main() {
 	os.Exit(run())
@@ -20,6 +20,7 @@ func run() int {
 
 	// Operational flags
 	team := flag.String("team", "", "Scope report to a single named team")
+	channel := flag.String("channel", "", "Scope report to a single named channel (requires --team)")
 	inactiveDays := flag.Int("inactive-days", 0, "Flag guests with no activity in the last N days")
 	format := flag.String("format", "table", "Output format: table, csv, json")
 	output := flag.String("output", "", "Write output to this file path")
@@ -32,7 +33,7 @@ func run() int {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Printf("mm-guest-audit %s\n", version)
+		fmt.Printf("mm-guest-audit %s\n", Version)
 		return ExitSuccess
 	}
 
@@ -51,6 +52,12 @@ func run() int {
 		return ExitConfigError
 	}
 
+	// Validate --channel requires --team
+	if *channel != "" && *team == "" {
+		fmt.Fprintln(os.Stderr, "error: --channel requires --team to be specified.")
+		return ExitConfigError
+	}
+
 	// Authenticate
 	client, err := NewClient(*url, *token, *username, *verbose)
 	if err != nil {
@@ -63,7 +70,7 @@ func run() int {
 	}
 
 	// Run audit
-	result, exitCode := RunAudit(client, *team, *inactiveDays, *verbose)
+	result, exitCode := RunAudit(client, *team, *channel, *inactiveDays, *verbose)
 	if result == nil {
 		return exitCode
 	}

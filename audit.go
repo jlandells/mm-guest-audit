@@ -52,9 +52,10 @@ type AuditResult struct {
 }
 
 // RunAudit performs the guest audit against the Mattermost instance.
-func RunAudit(client MattermostClient, teamFilter string, inactiveDays int, verbose bool) (*AuditResult, int) {
+func RunAudit(client MattermostClient, teamFilter string, channelFilter string, inactiveDays int, verbose bool) (*AuditResult, int) {
 	var filterTeamID string
 	var filterTeamName string
+	var filterChannelID string
 
 	// Resolve team filter if set
 	if teamFilter != "" {
@@ -67,6 +68,19 @@ func RunAudit(client MattermostClient, teamFilter string, inactiveDays int, verb
 		filterTeamName = team.DisplayName
 		if verbose {
 			fmt.Fprintf(os.Stderr, "Scoping to team: %s (ID: %s)\n", filterTeamName, filterTeamID)
+		}
+	}
+
+	// Resolve channel filter if set
+	if channelFilter != "" {
+		ch, err := client.GetChannelByName(filterTeamID, channelFilter)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: channel %q not found in team %q. Please check the name and try again.\n", channelFilter, teamFilter)
+			return nil, ExitConfigError
+		}
+		filterChannelID = ch.Id
+		if verbose {
+			fmt.Fprintf(os.Stderr, "Scoping to channel: %s (ID: %s)\n", ch.DisplayName, filterChannelID)
 		}
 	}
 
@@ -101,7 +115,7 @@ func RunAudit(client MattermostClient, teamFilter string, inactiveDays int, verb
 	exitCode := ExitSuccess
 
 	for _, u := range allGuests {
-		record, err := processGuest(client, u, filterTeamID, inactiveDays, verbose)
+		record, err := processGuest(client, u, filterTeamID, filterChannelID, inactiveDays, verbose)
 		if err != nil {
 			if verbose {
 				fmt.Fprintf(os.Stderr, "Warning: failed to process guest %q: %v\n", u.Username, err)
@@ -145,7 +159,7 @@ func RunAudit(client MattermostClient, teamFilter string, inactiveDays int, verb
 }
 
 // processGuest enriches a single guest user with team, channel, and activity data.
-func processGuest(client MattermostClient, u *model.User, filterTeamID string, inactiveDays int, verbose bool) (*GuestRecord, error) {
+func processGuest(client MattermostClient, u *model.User, filterTeamID string, filterChannelID string, inactiveDays int, verbose bool) (*GuestRecord, error) {
 	// Get teams for this user
 	teams, err := client.GetTeamsForUser(u.Id)
 	if err != nil {
@@ -179,11 +193,19 @@ func processGuest(client MattermostClient, u *model.User, filterTeamID string, i
 			return nil, fmt.Errorf("failed to get channels for team %q: %w", ti.DisplayName, err)
 		}
 		for _, ch := range chs {
+			if filterChannelID != "" && ch.Id != filterChannelID {
+				continue
+			}
 			channels = append(channels, ChannelInfo{
 				TeamName:    ti.DisplayName,
 				ChannelName: ch.DisplayName,
 			})
 		}
+	}
+
+	// If channel filter is active and this guest has no matching channel, skip
+	if filterChannelID != "" && len(channels) == 0 {
+		return nil, nil
 	}
 
 	// Get last post date

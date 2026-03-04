@@ -17,6 +17,7 @@ type MattermostClient interface {
 	GetGuestUsers(page, perPage int) ([]*model.User, error)
 	GetTeamByName(name string) (*model.Team, error)
 	GetTeamsForUser(userID string) ([]*model.Team, error)
+	GetChannelByName(teamID, channelName string) (*model.Channel, error)
 	GetChannelsForTeamForUser(teamID, userID string) ([]*model.Channel, error)
 	GetLastPostDateForUser(userID, username string, teamIDs []string) (*time.Time, error)
 }
@@ -111,6 +112,17 @@ func (c *mmClient) GetTeamsForUser(userID string) ([]*model.Team, error) {
 		return nil, classifyAPIError("", resp, err)
 	}
 	return teams, nil
+}
+
+func (c *mmClient) GetChannelByName(teamID, channelName string) (*model.Channel, error) {
+	channel, resp, err := c.api.GetChannelByName(c.ctx, channelName, teamID, "")
+	if err != nil {
+		if resp != nil && resp.StatusCode == 404 {
+			return nil, fmt.Errorf("error: channel %q not found. Please check the name and try again", channelName)
+		}
+		return nil, classifyAPIError("", resp, err)
+	}
+	return channel, nil
 }
 
 func (c *mmClient) GetChannelsForTeamForUser(teamID, userID string) ([]*model.Channel, error) {

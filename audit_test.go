@@ -11,16 +11,18 @@ import (
 // --- Mock client ---
 
 type mockClient struct {
-	guests          []*model.User
-	guestsErr       error
-	teams           map[string][]*model.Team // userID → teams
-	teamsErr        map[string]error
-	teamByName      map[string]*model.Team
-	teamByNameErr   map[string]error
-	channels        map[string][]*model.Channel // teamID+userID → channels
-	channelsErr     map[string]error
-	lastPostDate    map[string]*time.Time // userID → last post
-	lastPostDateErr map[string]error
+	guests           []*model.User
+	guestsErr        error
+	teams            map[string][]*model.Team // userID → teams
+	teamsErr         map[string]error
+	teamByName       map[string]*model.Team
+	teamByNameErr    map[string]error
+	channelByName    map[string]*model.Channel // teamID+channelName → channel
+	channelByNameErr map[string]error
+	channels         map[string][]*model.Channel // teamID+userID → channels
+	channelsErr      map[string]error
+	lastPostDate     map[string]*time.Time // userID → last post
+	lastPostDateErr  map[string]error
 }
 
 func (m *mockClient) GetGuestUsers(page, perPage int) ([]*model.User, error) {
@@ -48,6 +50,19 @@ func (m *mockClient) GetTeamByName(name string) (*model.Team, error) {
 		return t, nil
 	}
 	return nil, fmt.Errorf("error: team %q not found. Please check the name and try again", name)
+}
+
+func (m *mockClient) GetChannelByName(teamID, channelName string) (*model.Channel, error) {
+	key := teamID + ":" + channelName
+	if m.channelByNameErr != nil {
+		if err, ok := m.channelByNameErr[key]; ok {
+			return nil, err
+		}
+	}
+	if ch, ok := m.channelByName[key]; ok {
+		return ch, nil
+	}
+	return nil, fmt.Errorf("error: channel %q not found. Please check the name and try again", channelName)
 }
 
 func (m *mockClient) GetTeamsForUser(userID string) ([]*model.Team, error) {
@@ -210,7 +225,7 @@ func TestRunAudit_BasicScenario(t *testing.T) {
 		},
 	}
 
-	result, exitCode := RunAudit(client, "", 0, false)
+	result, exitCode := RunAudit(client, "", "", 0, false)
 
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
@@ -282,7 +297,7 @@ func TestRunAudit_TeamFilter(t *testing.T) {
 		},
 	}
 
-	result, exitCode := RunAudit(client, "Sales", 0, false)
+	result, exitCode := RunAudit(client, "Sales", "", 0, false)
 
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
@@ -300,7 +315,7 @@ func TestRunAudit_TeamFilterNotFound(t *testing.T) {
 		teamByName: map[string]*model.Team{},
 	}
 
-	result, exitCode := RunAudit(client, "NonExistent", 0, false)
+	result, exitCode := RunAudit(client, "NonExistent", "", 0, false)
 
 	if exitCode != ExitConfigError {
 		t.Errorf("expected exit code %d, got %d", ExitConfigError, exitCode)
@@ -333,7 +348,7 @@ func TestRunAudit_Pagination(t *testing.T) {
 		channels: channels,
 	}
 
-	result, exitCode := RunAudit(client, "", 0, false)
+	result, exitCode := RunAudit(client, "", "", 0, false)
 
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
@@ -348,7 +363,7 @@ func TestRunAudit_EmptyResult(t *testing.T) {
 		guests: []*model.User{},
 	}
 
-	result, exitCode := RunAudit(client, "", 0, false)
+	result, exitCode := RunAudit(client, "", "", 0, false)
 
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
@@ -378,7 +393,7 @@ func TestRunAudit_PartialFailure(t *testing.T) {
 		},
 	}
 
-	result, exitCode := RunAudit(client, "", 0, false)
+	result, exitCode := RunAudit(client, "", "", 0, false)
 
 	if exitCode != ExitPartialFailure {
 		t.Errorf("expected exit code %d, got %d", ExitPartialFailure, exitCode)
@@ -415,7 +430,7 @@ func TestRunAudit_InactivityFlagging(t *testing.T) {
 		},
 	}
 
-	result, exitCode := RunAudit(client, "", 30, false)
+	result, exitCode := RunAudit(client, "", "", 30, false)
 
 	if exitCode != ExitSuccess {
 		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
@@ -439,6 +454,73 @@ func TestRunAudit_InactivityFlagging(t *testing.T) {
 	}
 	if result.Summary.InactiveGuests != 2 {
 		t.Errorf("expected 2 inactive guests, got %d", result.Summary.InactiveGuests)
+	}
+}
+
+func TestRunAudit_ChannelFilter(t *testing.T) {
+	now := time.Now()
+	loginTime := now.AddDate(0, 0, -5)
+
+	client := &mockClient{
+		guests: []*model.User{
+			{Id: "user1", Username: "jane.doe", FirstName: "Jane", LastName: "Doe", Email: "jane@example.com", CreateAt: 1709280000000, LastActivityAt: loginTime.UnixMilli()},
+			{Id: "user2", Username: "bob.smith", FirstName: "Bob", LastName: "Smith", Email: "bob@example.com", CreateAt: 1709280000000, LastActivityAt: loginTime.UnixMilli()},
+		},
+		teamByName: map[string]*model.Team{
+			"Engineering": {Id: "team1", DisplayName: "Engineering"},
+		},
+		channelByName: map[string]*model.Channel{
+			"team1:dev-backend": {Id: "ch2", DisplayName: "Dev Backend", TeamId: "team1"},
+		},
+		teams: map[string][]*model.Team{
+			"user1": {{Id: "team1", DisplayName: "Engineering"}},
+			"user2": {{Id: "team1", DisplayName: "Engineering"}},
+		},
+		channels: map[string][]*model.Channel{
+			"team1:user1": {{Id: "ch1", DisplayName: "General"}, {Id: "ch2", DisplayName: "Dev Backend"}},
+			"team1:user2": {{Id: "ch1", DisplayName: "General"}},
+		},
+		lastPostDate: map[string]*time.Time{
+			"user1": timePtr(now.AddDate(0, 0, -2)),
+		},
+	}
+
+	result, exitCode := RunAudit(client, "Engineering", "dev-backend", 0, false)
+
+	if exitCode != ExitSuccess {
+		t.Fatalf("expected exit code %d, got %d", ExitSuccess, exitCode)
+	}
+	// Only jane.doe is in dev-backend
+	if len(result.Guests) != 1 {
+		t.Fatalf("expected 1 guest in dev-backend channel, got %d", len(result.Guests))
+	}
+	if result.Guests[0].Username != "jane.doe" {
+		t.Errorf("expected jane.doe, got %s", result.Guests[0].Username)
+	}
+	// Only the filtered channel should appear
+	if len(result.Guests[0].Channels) != 1 {
+		t.Fatalf("expected 1 channel, got %d", len(result.Guests[0].Channels))
+	}
+	if result.Guests[0].Channels[0].ChannelName != "Dev Backend" {
+		t.Errorf("expected channel 'Dev Backend', got %q", result.Guests[0].Channels[0].ChannelName)
+	}
+}
+
+func TestRunAudit_ChannelFilterNotFound(t *testing.T) {
+	client := &mockClient{
+		teamByName: map[string]*model.Team{
+			"Engineering": {Id: "team1", DisplayName: "Engineering"},
+		},
+		channelByName: map[string]*model.Channel{},
+	}
+
+	result, exitCode := RunAudit(client, "Engineering", "nonexistent-channel", 0, false)
+
+	if exitCode != ExitConfigError {
+		t.Errorf("expected exit code %d, got %d", ExitConfigError, exitCode)
+	}
+	if result != nil {
+		t.Error("expected nil result for unknown channel")
 	}
 }
 

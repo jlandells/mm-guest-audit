@@ -31,7 +31,7 @@ No other dependencies or installation steps are required.
 
 ## Authentication
 
-The tool requires a System Administrator account to access the necessary API endpoints.
+The tool requires a System Administrator account to access the necessary API endpoints. It works with all Mattermost authentication backends — local accounts, LDAP/AD, SAML, and OpenID Connect.
 
 ### Personal Access Token (Recommended)
 
@@ -41,9 +41,13 @@ Generate a Personal Access Token in **System Console > Integrations > Integratio
 mm-guest-audit --url https://mattermost.example.com --token your-token-here
 ```
 
+Personal Access Tokens work regardless of the authentication backend configured on your instance. **If your instance uses SAML or OpenID Connect, a Personal Access Token is the only supported authentication method** — those protocols use browser-based redirects that cannot be handled from a CLI tool.
+
 ### Username and Password
 
-If Personal Access Tokens are disabled on your instance, you can authenticate with a username and password. The tool will prompt you for the password interactively (with echo suppressed):
+If Personal Access Tokens are disabled on your instance, you can authenticate with a username and password. This method works for both local Mattermost accounts and LDAP/AD accounts — Mattermost routes the login to your LDAP server automatically. The `--username` flag (or `MM_USERNAME`) accepts a Mattermost username, email address, or LDAP login ID.
+
+The tool will prompt you for the password interactively (with echo suppressed):
 
 ```bash
 mm-guest-audit --url https://mattermost.example.com --username admin
@@ -58,6 +62,8 @@ export MM_USERNAME=admin
 export MM_PASSWORD=your-password
 mm-guest-audit
 ```
+
+> **SAML and OpenID Connect users:** Username/password authentication does not work for accounts that authenticate via SAML or OpenID Connect. Use a Personal Access Token instead.
 
 **Note:** There is no `--password` flag. Passwords passed as CLI arguments appear in shell history and process listings, which is a security risk.
 
@@ -75,6 +81,7 @@ mm-guest-audit [flags]
 | `--token` | `MM_TOKEN` | string | | Personal Access Token |
 | `--username` | `MM_USERNAME` | string | | Username for password auth |
 | `--team` | | string | *(all teams)* | Scope report to a single named team |
+| `--channel` | | string | *(all channels)* | Scope report to a single named channel (requires `--team`) |
 | `--inactive-days` | | int | `0` (disabled) | Flag guests inactive for more than N days |
 | `--format` | | string | `table` | Output format: `table`, `csv`, `json` |
 | `--output` | | string | *(stdout)* | Write output to a file |
@@ -121,6 +128,14 @@ mm-guest-audit --url https://mattermost.example.com --token TOKEN --inactive-day
 ```bash
 mm-guest-audit --url https://mattermost.example.com --token TOKEN --team Engineering
 ```
+
+### Scope to a specific channel within a team
+
+```bash
+mm-guest-audit --url https://mattermost.example.com --token TOKEN --team Engineering --channel general
+```
+
+**Note:** `--channel` requires `--team` to be specified. The channel name is the URL-safe name (e.g. `general`, `dev-backend`), not the display name.
 
 ### JSON output for scripting
 
